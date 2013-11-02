@@ -26,6 +26,9 @@ LONG_STATUS = {
     500: '500 ',
 }
 
+if 'CO_STORAGE_DIR' not in os.environ:
+    os.environ['CO_STORAGE_DIR'] = ''
+
 def headers_for_status(code):
     return HEADERS % dict(status=LONG_STATUS[code])
 
@@ -96,8 +99,8 @@ def open_dumptruck(dbname):
                 code = 500
                 raise NotOK(code, msg)
     else:
-        msg = 'Error: database file does not exist.'
-        code = 500
+        msg = {"error": "database file does not exist."}
+        code = 404
         raise NotOK(code, msg)
 
     dt.connection.set_authorizer(_authorizer_readonly)
@@ -171,15 +174,29 @@ def meta(boxhome=os.path.join('/', '%s/home' % os.environ['CO_STORAGE_DIR'])):
         res = {}
         res['databaseType'] = 'sqlite3'
         res['table'] = {}
+        res['grid'] = {}
         for name, type in dt.tablesAndViews():
             d = { "type": type }
             d['columnNames'] = list(dt.column_names(name))
             res['table'][name] = d
+        if '_grids' in res['table']:
+            code, grids = execute_query('SELECT * FROM _grids', dbname)
+            for grid in grids:
+                res['grid'][grid['checksum']] = grid
         body = json.dumps(res)
         code = 200
     except NotOK as e:
-        code = e.code
-        body = e.body
+        if e.code == 404:
+            # database not found is not an error for the meta endpoint
+            code = 200
+            body = json.dumps({"databaseType": "none",
+                "table": {},
+                "grid": {}
+                })
+        else:
+            code = e.code
+            body = e.body
+
     headers = headers_for_status(code)
     return headers + '\n\n' + body + '\n'
 
